@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>青天见 · Qing Tian Jian</title>
+<!-- swisseph-wasm CDN -->
+<script type="module">
+import swisseph from "https://cdn.jsdelivr.net/npm/swisseph-wasm@0.0.5/+esm";
+window.swisseph = swisseph;
+</script>
+<!-- AstroChart CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@astrodraw/astrochart@3.0.2/dist/astrochart.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a14;color:#c0c0d8;font-family:"PingFang SC","Microsoft YaHei",serif;overflow-y:auto}
+#app{max-width:660px;margin:0 auto;padding:16px;min-height:100vh}
+h1{text-align:center;font-size:28px;font-weight:900;background:linear-gradient(180deg,#c0a060,#806030,#c0a060);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px}
+.sub{text-align:center;font-size:12px;color:#605030;margin-bottom:12px}
+.tabs{display:flex;gap:0;margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid#302020}
+.tab{flex:1;padding:10px;text-align:center;background:#141420;color:#806040;font-size:13px;font-weight:600;cursor:pointer;border:none}
+.tab.active{background:#2a2020;color:#c0a060}
+.f-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.f-row label{min-width:60px;font-size:12px;color:#806040}
+.f-row input,.f-row select{flex:1;background:#141420;border:1px solid#302020;border-radius:8px;padding:9px 10px;color:#c0c0d8;font-size:13px}
+.f-row input:focus,.f-row select:focus{outline:none;border-color:#c0a060}
+.btn-row{display:flex;gap:8px;margin-top:4px}
+.btn{flex:1;background:linear-gradient(135deg,#806030,#604020);border:none;color:#e0d0b0;font-size:14px;font-weight:700;padding:11px;border-radius:8px;cursor:pointer}
+.btn:active{transform:scale(.97)}.btn2{flex:1;background:#202030;border:1px solid#403030;color:#a09070;font-size:12px;padding:10px;border-radius:8px;cursor:pointer}
+.loading{display:none;text-align:center;padding:20px;color:#806040;font-size:13px}
+.loading.show{display:block}
+#chart-container{display:flex;justify-content:center;margin:12px 0;min-height:340px;position:relative}
+#chart-container canvas,#chart-container svg{max-width:100%;height:auto}
+#chart-container .phase-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.info-bar{background:#10101a;border:1px solid#202030;border-radius:10px;padding:12px;margin-top:10px;font-size:12px;color:#a09070;line-height:1.6}
+.info-bar .h3{color:#c0a060;font-size:14px;font-weight:700;margin-bottom:6px}
+.phase-line{stroke-opacity:.6;fill:none}
+.geo-hint{font-size:10px;color:#504030;margin-top:2px}
+</style>
+</head>
+<body>
+<div id="app">
+<h1>青天见</h1><p class="sub">—— 紫微斗数 · 西洋占星 双模命盘 ——</p>
+<div class="tabs"><button class="tab active" onclick="switchMode('ziwei')">紫微斗数</button><button class="tab" onclick="switchMode('western')">西洋占星</button></div>
+<div class="f-row"><label>姓名</label><input id="name" placeholder="选填"></div>
+<div class="f-row"><label>日期</label><input id="date" type="date"></div>
+<div class="f-row"><label>时间</label><input id="time" type="time" value="12:00"></div>
+<div class="f-row"><label>城市</label><input id="city" placeholder="如: 北京, Tokyo, London"><div class="geo-hint">自动查经纬度</div></div>
+<div class="f-row"><label>性别</label><select id="gender"><option value="male">男</option><option value="female">女</option></select></div>
+<div class="btn-row"><button class="btn2" onclick="getLocation()">📍 定位</button><button class="btn" onclick="calculate()">🌟 排盘</button></div>
+<div class="loading" id="loading">🔄 计算中...</div>
+<div id="chart-container"></div>
+<div class="info-bar" id="info"></div>
+</div>
+<script>
+let curMode="ziwei",geoData={lat:39.9,lon:116.4,name:"北京"};
+
+// ========== GEOCODING ==========
+async function getLocation(){
+  const city=document.getElementById("city").value.trim()||"北京";
+  const btn=event.target;btn.textContent="搜索中...";
+  try{const r=await fetch(`/api/geocode?q=${encodeURIComponent(city)}`);const d=await r.json();
+    if(d.found){geoData={lat:d.lat,lon:d.lon,name:d.name.split(",")[0]};btn.textContent="✅ "+geoData.name}
+    else{geoData={lat:39.9,lon:116.4,name:city};btn.textContent="⚠️ 未找到,用默认"}
+  }catch(e){geoData={lat:39.9,lon:116.4,name:city};btn.textContent="⚠️ 离线,用默认"}}
+
+function switchMode(m){curMode=m;document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));event.target.classList.add("active");
+  document.getElementById("chart-container").innerHTML="";document.getElementById("info").innerHTML=""}
+
+async function calculate(){
+  const y=parseInt(document.getElementById("date").value.split("-")[0]);const m=parseInt(document.getElementById("date").value.split("-")[1]);const d=parseInt(document.getElementById("date").value.split("-")[2]);const t=document.getElementById("time").value;const h=parseInt(t.split(":")[0]);const mi=parseInt(t.split(":")[1]||"0");
+  if(!y||!m||!d)return;
+  document.getElementById("loading").classList.add("show");document.getElementById("chart-container").innerHTML="";
+  if(curMode==="ziwei"){renderZiwei(y,m,d,h);document.getElementById("loading").classList.remove("show")}
+  else{await renderWestern(y,m,d,h,mi);document.getElementById("loading").classList.remove("show")}}
+
+// ========== ZI WEI DOU SHU ==========
+const HS=["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"],EB=["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
+const PALACES=["命宫","兄弟","夫妻","子女","财帛","疾厄","迁移","交友","官禄","田宅","福德","父母"];
+
+function solarToLunar(y,m,d){const info=[0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557];let o=0;for(let i=1900;i<y;i++)o+=12+((info[i-1900]&0xf0000)>>16);let lm=0,ld=0,ly=y,leap=false;const ldM=(info[y-1900]&0xf);for(let i=0;i<12;i++){lm++;const days=((info[y-1900]>>(15-i))&1)?30:29;if(o+days>=d){ld=d-o;break}o+=days}if(ldM>0&&lm>=ldM){leap=true;if(lm===ldM){const ldays=((info[y-1900]>>(15-ldM))&1)?30:29;if(o+ldays>=d){lm=ldM+0.5;ld=d-o}}}return{ly,lm,ld,leap}}
+function ys(y){return(y-4)%10}function yb(y){return(y-4)%12}
+function ds(y,m,d){const base=new Date(1900,0,31);return(Math.floor((new Date(y,m-1,d)-base)/86400000)+9)%10}
+function db(y,m,d){const base=new Date(1900,0,31);return(Math.floor((new Date(y,m-1,d)-base)/86400000)+1)%12}
+
+function renderZiwei(y,m,d,h){
+  const lunar=solarToLunar(y,m,d);const ysV=ys(y),ybV=yb(y);const dsV=ds(y,m,d),dbV=db(y,m,d);const hb=Math.floor((h+1)/2)%12;
+  const gzY=HS[ysV]+EB[ybV];const gzD=HS[dsV]+EB[dbV];const gzH=HS[(dsV*2+hb)%10]+EB[hb];
+  const mingBranch=(lunar.lm-1+hb+12)%12;const shenBranch=(mingBranch+6)%12;
+  const zwB=(12-dbV+2+12)%12;
+  const shMap={"甲":["廉贞","破军","武曲","太阳"],"乙":["天机","天梁","紫微","太阴"],"丙":["天同","天机","文昌","廉贞"],"丁":["太阴","天同","天机","巨门"],"戊":["贪狼","太阴","右弼","天机"],"己":["武曲","贪狼","天梁","文曲"],"庚":["太阳","武曲","太阴","天同"],"辛":["巨门","太阳","文曲","文昌"],"壬":["天梁","紫微","左辅","武曲"],"癸":["破军","巨门","太阴","贪狼"]};
+  const sh=shMap[HS[ysV]]||[];
+  // Star positions (simplified table)
+  const stars={};stars["紫微"]=zwB;stars["天机"]=(zwB-1+12)%12;stars["太阳"]=(zwB-3+12)%12;stars["武曲"]=(zwB-4+12)%12;stars["天同"]=(zwB-5+12)%12;stars["廉贞"]=(zwB-8+12)%12;
+  const tfStart=(zwB+4)%12;["天府","太阴","贪狼","巨门","天相","天梁","七杀","破军"].forEach((s,i)=>{stars[s]=(tfStart+i)%12});
+
+  let html=`<h3 style="color:#c0a060;font-size:15px;margin:8px 0">紫微斗数命盘</h3><p style="font-size:11px;color:#605040">${y}/${m}/${d} ${h}:00 · ${gzY}年 ${gzD}日 ${gzH}时 · 命宫${EB[mingBranch]}</p><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:10px">`;
+  for(let i=0;i<12;i++){const b=(mingBranch+i)%12;let s="";for(const[sn,sp]of Object.entries(stars)){if(sp===b){const si=sh.indexOf(sn);s+=si>=0?`<span style="color:#e0a040">${sn}${["禄","权","科","忌"][si]}</span> `:`${sn} `}}
+    if(b===mingBranch)s="<span style='color:#ffd040'>命</span> "+s;if(b===shenBranch)s+=" <span style='color:#e0c080'>身</span>";
+    html+=`<div style="background:#141420;border:1px solid#202030;border-radius:6px;padding:6px;text-align:center;min-height:50px"><div style="font-size:9px;color:#605040">${PALACES[i]}</div><div style="font-size:11px;color:#c0a060;line-height:1.3">${s||EB[b]}</div></div>`}
+  html+=`</div><div style="margin-top:8px;font-size:11px;color:#a09070">四化: ${sh.map((s,i)=>`<span style="background:#202015;border:1px solid#403020;border-radius:4px;padding:2px 6px;margin:0 2px">${s}·${["化禄","化权","化科","化忌"][i]}</span>`).join("")}</div>`;
+  document.getElementById("chart-container").innerHTML=html;document.getElementById("info").innerHTML=""}
+
+// ========== WESTERN ASTROLOGY (swisseph-wasm) ==========
+async function renderWestern(y,m,d,h,mi){
+  const container=document.getElementById("chart-container");
+  try{
+    const sw=window.swisseph;if(!sw){container.innerHTML="<p style='color:#806040;text-align:center;padding:40px'>swisseph-wasm 加载中...<br>请刷新页面</p>";return}
+    // Init swisseph
+    const ephePath=window.location.href.includes("localhost")?"/wasm/":"https://cdn.jsdelivr.net/npm/swisseph-wasm@0.0.5/";
+    if(!sw._initialized)await sw.init({ephePath:ephePath+"/wasm/"});
+    // Julian day
+    const jd=sw.swe_julday(y,m,d,h+mi/60,1);
+    // Calculate planets
+    const planets=["☉","☽","☿","♀","♂","♃","♄","⛢","♆","♇"];
+    const planetIds=[0,1,2,3,4,5,6,7,8,9];
+    const longitudes=[],positions=[];
+    for(const pid of planetIds){
+      const r=sw.swe_calc_ut(jd,pid,2048);longitudes.push(r.longitude);positions.push({name:planets[pid],lon:r.longitude,lat:r.latitude})}
+    // Houses (Whole Sign from ASC)
+    const houses=sw.swe_houses(jd,geoData.lat,geoData.lon,'W');
+    const asc=houses.ascendant;const mc=houses.mc;
+    const ascSign=Math.floor(asc/30);
+    const signs=["♈白羊","♉金牛","♊双子","♋巨蟹","♌狮子","♍处女","♎天秤","♏天蝎","♐射手","♑摩羯","♒水瓶","♓双鱼"];
+    const houseCusps=Array.from({length:12},(_,i)=>(ascSign+i)%12);
+
+    // Phase lines (dual loop)
+    const aspects=[];const phaseLines=[];
+    for(let i=0;i<longitudes.length;i++)for(let j=i+1;j<longitudes.length;j++){
+      const diff=Math.abs(longitudes[i]-longitudes[j]);const arc=Math.min(diff,360-diff);
+      const checks=[[0,"合",8],[60,"六",6],[90,"四",8],[120,"三",8],[180,"冲",8]];
+      for(const[deg,name,orb]of checks){if(Math.abs(arc-deg)<=orb){
+        aspects.push(`${positions[i].name} ${name} ${positions[j].name} (${arc.toFixed(1)}°)`);
+        phaseLines.push({i,j,name,angle:deg,arc});break}}}
+    // Try AstroChart rendering
+    if(window.AstroChart){
+      try{const chartData={planets:positions.map(p=>({name:p.name,longitude:p.lon,latitude:p.lat,house:Math.floor(p.lon/30)})),houses:houseCusps.map((s,i)=>({sign:s,degree:0})),ascendant:asc};
+        container.innerHTML=`<div id="astro-wheel"></div>`;
+        new AstroChart("#astro-wheel",chartData,{width:340,height:340,showAspects:true,aspectLines:phaseLines})}
+      catch(e){drawFallbackChart(container,positions,houseCusps,asc,ascSign,signs,phaseLines,aspects)}
+    }else{drawFallbackChart(container,positions,houseCusps,asc,ascSign,signs,phaseLines,aspects)}
+    // Info bar
+    document.getElementById("info").innerHTML=`<div class="h3">${y}/${m}/${d} ${h}:${String(mi).padStart(2,"0")} · ${geoData.name} (${geoData.lat},${geoData.lon})</div><p>ASC ${signs[ascSign]} ${(asc%30).toFixed(1)}° · MC ${signs[Math.floor(mc/30)]} ${(mc%30).toFixed(1)}°</p><p>行星: ${positions.map(p=>p.name+signs[Math.floor(p.lon/30)]+` ${(p.lon%30).toFixed(1)}°`).join(" · ")}</p><p style="margin-top:4px">相位 (${phaseLines.length}): ${aspects.slice(0,8).join(" | ")}${aspects.length>8?" ...":""}</p>`;
+  }catch(e){container.innerHTML=`<p style="color:#c06040;text-align:center;padding:20px">计算失败: ${e.message}<br>请检查网络连接或刷新</p>`}}
+
+function drawFallbackChart(container,positions,houseCusps,asc,ascSign,signs,phaseLines,aspects){
+  // Canvas-based chart with phase lines
+  const w=340,h=340,cx=w/2,cy=h/2,r=140;
+  const html=`<canvas id="chart-canvas" width="${w}" height="${h}" style="max-width:100%"></canvas>`;
+  container.innerHTML=html;
+  setTimeout(()=>{const c=document.getElementById("chart-canvas");if(!c)return;const ctx=c.getContext("2d");
+    // Background
+    ctx.fillStyle="#0a0a14";ctx.fillRect(0,0,w,h);
+    // Outer ring
+    ctx.strokeStyle="#302020";ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle="#403030";ctx.lineWidth=1;ctx.beginPath();ctx.arc(cx,cy,r-30,0,Math.PI*2);ctx.stroke();
+    // House lines
+    for(let i=0;i<12;i++){const a=(-asc+i*30)*Math.PI/180-Math.PI/2;ctx.strokeStyle="#30202088";ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r);ctx.stroke();
+      ctx.fillStyle="#806040";ctx.font="10px sans-serif";ctx.fillText(signs[houseCusps[i]].slice(1,3),cx+Math.cos(a)*(r-10),cy+Math.sin(a)*(r-10))}
+    // Planet dots
+    for(const p of positions){const a=(p.lon-asc)*Math.PI/180-Math.PI/2;const pr=(r-55)+((p.lon%30)/30)*50;
+      const px=cx+Math.cos(a)*pr,py=cy+Math.sin(a)*pr;
+      ctx.fillStyle="#c0a060";ctx.beginPath();ctx.arc(px,py,5,0,Math.PI*2);ctx.fill();ctx.fillStyle="#fff";ctx.font="7px sans-serif";ctx.fillText(p.name,px+6,py+3)}
+    // Phase lines
+    for(const pl of phaseLines){const a1=(positions[pl.i].lon-asc)*Math.PI/180-Math.PI/2;const a2=(positions[pl.j].lon-asc)*Math.PI/180-Math.PI/2;
+      const r1=(r-55)+((positions[pl.i].lon%30)/30)*50;const r2=(r-55)+((positions[pl.j].lon%30)/30)*50;
+      const colors={"合":"#e0e040","冲":"#e04040","三":"#40a0e0","四":"#e06020","六":"#40c060"};
+      ctx.strokeStyle=colors[pl.name]+"88";ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(cx+Math.cos(a1)*r1,cy+Math.sin(a1)*r1);ctx.lineTo(cx+Math.cos(a2)*r2,cy+Math.sin(a2)*r2);ctx.stroke()}
+    // ASC arrow
+    const ascA=(-0)*Math.PI/180-Math.PI/2;
+    ctx.strokeStyle="#c0a060";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx+Math.cos(ascA)*(r+5),cy+Math.sin(ascA)*(r+5));ctx.lineTo(cx+Math.cos(ascA)*(r-25),cy+Math.sin(ascA)*(r-25));ctx.stroke();
+    ctx.fillStyle="#c0a060";ctx.font="bold 11px sans-serif";ctx.fillText("ASC",cx+Math.cos(ascA)*(r-10),cy+Math.sin(ascA)*(r-10))},100)}
+
+// Init
+document.getElementById("date").value=new Date().toISOString().split("T")[0];
+</script>
+</body>
+</html>
